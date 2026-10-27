@@ -137,7 +137,7 @@ class MainActivity : FlutterActivity() {
             camera = null
             imageAnalysis = null
             cameraProvider = null
-        } catch (_: Exception) {}
+        } catch (e: Exception) {}
     }
 
     override fun onDestroy() {

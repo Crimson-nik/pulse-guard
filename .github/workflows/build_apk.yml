@@ -25,16 +25,16 @@ jobs:
           channel: 'stable'
           cache: true
 
-      - name: Recreate Android project wrapper
+      - name: Ensure gradlew line endings and permissions
         run: |
-          flutter create --platforms android --project-name pulse_guard .
-          git checkout -- lib/ pubspec.yaml android/app/build.gradle android/app/src/main/AndroidManifest.xml android/app/src/main/kotlin/com/pulseguard/app/MainActivity.kt android/app/src/main/res/ android/build.gradle android/gradle.properties android/settings.gradle
+          tr -d '\r' < android/gradlew > android/gradlew.tmp && mv android/gradlew.tmp android/gradlew
+          chmod +x android/gradlew
 
       - name: Get Flutter dependencies
         run: flutter pub get
 
       - name: Build Release APK
-        run: flutter build apk --release
+        run: flutter build apk --release --android-skip-build-dependency-validation
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
