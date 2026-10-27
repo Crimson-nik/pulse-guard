@@ -105,6 +105,34 @@ class _MeasurementScreenState extends State<MeasurementScreen>
                 icon: const Icon(Icons.close),
                 onPressed: () => _showCancelDialog(context, provider),
               ),
+              actions: [
+                // A/B switch for the camera capture-request tuning.
+                // Applies to the NEXT recording (settings are applied at bind).
+                IconButton(
+                  tooltip: provider.cameraTuning
+                      ? 'Camera tuning ON (tap to disable)'
+                      : 'Camera tuning OFF (tap to enable)',
+                  icon: Icon(
+                    Icons.tune,
+                    color: provider.cameraTuning
+                        ? AppColors.accentBlue
+                        : AppColors.textTertiary,
+                  ),
+                  onPressed: () {
+                    provider.toggleCameraTuning();
+                    final bool on = provider.cameraTuning;
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(on
+                            ? 'Camera tuning ON — next recording only'
+                            : 'Camera tuning OFF — next recording only'),
+                        duration: const Duration(seconds: 2),
+                        behavior: SnackBarBehavior.floating,
+                      ),
+                    );
+                  },
+                ),
+              ],
             ),
             body: SafeArea(
               child: Padding(

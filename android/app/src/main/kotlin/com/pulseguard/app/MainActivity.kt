@@ -79,7 +79,10 @@ class MainActivity : FlutterActivity() {
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, METHOD_CHANNEL)
             .setMethodCallHandler { call, result ->
                 when (call.method) {
-                    "startCapture" -> startCamera(result)
+                    "startCapture" -> {
+                        val tuned = call.argument<Boolean>("tuned") ?: true
+                        startCamera(result, tuned)
+                    }
                     "stopCapture" -> {
                         stopCamera()
                         result.success(true)
@@ -113,7 +116,7 @@ class MainActivity : FlutterActivity() {
     // Camera Lifecycle
     // ═══════════════════════════════════════════════════════════════════════
 
-    private fun startCamera(result: MethodChannel.Result) {
+    private fun startCamera(result: MethodChannel.Result, tuned: Boolean = true) {
         // Never leak a previous session (this was a source of the 2nd-run hang)
         stopCamera()
         cameraExecutor = Executors.newSingleThreadExecutor()
@@ -124,7 +127,7 @@ class MainActivity : FlutterActivity() {
                 val provider = cameraProviderFuture.get()
                 cameraProvider = provider
 
-                val bound = bindAnalysis(provider, tuned = true)
+                val bound = bindAnalysis(provider, tuned = tuned)
 
                 // Torch on — the LED is the only light source.
                 camera?.cameraControl?.enableTorch(true)
@@ -366,26 +369,32 @@ class PpgFrameAnalyzer(
                 val isFingerDetected = avgRed > 120.0 && avgRed > avgGreen * 1.35
 
                 // ── Automatic AE / AWB lock management ──────────────
+                // Locking is only allowed when the exposure actually looks
+                // sane. Locking a blown-out (hard-pressed) or a black frame
+                // would freeze an exposure in which the pulse is invisible,
+                // which shows up as a wrong (too low) BPM.
                 if (isFingerDetected) {
                     stableFingerFrames++
                 } else {
                     stableFingerFrames = 0
                 }
 
+                val lumaSane = avgLuma > 45.0 && avgLuma < 205.0 &&
+                    clipRatio < 0.01
+
                 if (!exposureLocked) {
-                    // ~0.7 s of a steady finger: 3A has converged, lock it.
-                    if (stableFingerFrames >= 20) {
+                    // ~0.7 s of a steady finger AND a good exposure: lock.
+                    if (stableFingerFrames >= 20 && lumaSane) {
                         onLockChange(true)
                     }
                 } else {
-                    if (clipRatio > 0.08) clipFrames++ else {
-                        if (clipFrames > 0) clipFrames--
-                    }
-                    if (clipFrames > 45 && unlockCount < 2) {
-                        // Badly blown out (finger pressed too hard): release
-                        // the exposure, let AE re-converge, then re-lock.
-                        // Capped at two attempts so the exposure cannot hunt
-                        // back and forth for the whole recording.
+                    val bad = clipRatio > 0.08 || avgLuma < 30.0 || avgLuma > 225.0
+                    if (bad) clipFrames++ else if (clipFrames > 0) clipFrames--
+
+                    if (clipFrames > 30 && unlockCount < 3) {
+                        // Exposure drifted out of range: release it, let AE
+                        // re-converge, then re-lock. Capped so it cannot hunt
+                        // for the whole recording.
                         clipFrames = 0
                         stableFingerFrames = 0
                         unlockCount++

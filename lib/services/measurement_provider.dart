@@ -81,6 +81,20 @@ class MeasurementProvider extends ChangeNotifier {
   /// Fraction of clipped (blown-out) pixels in the ROI, 0–1.
   double get clipRatio => _clipRatio;
 
+  double _clipSum = 0;
+  int _clipCount = 0;
+
+  /// Camera tuning (AE/AWB lock, OIS/EIS off, 30 fps lock) on/off.
+  /// Takes effect on the NEXT recording, because the capture settings are
+  /// applied when the camera is bound.
+  bool _cameraTuning = false;
+  bool get cameraTuning => _cameraTuning;
+
+  void toggleCameraTuning() {
+    _cameraTuning = !_cameraTuning;
+    notifyListeners();
+  }
+
   int _droppedFrames = 0;
   /// Frames that arrived while the finger was not covering the lens.
   int get droppedFrames => _droppedFrames;
@@ -151,6 +165,8 @@ class MeasurementProvider extends ChangeNotifier {
     _fingerStreak = 0;
     _droppedFrames = 0;
     _clipRatio = 0;
+    _clipSum = 0;
+    _clipCount = 0;
     _exposureLocked = false;
     _finishing = false;
     _prepStart = DateTime.now();
@@ -159,7 +175,7 @@ class MeasurementProvider extends ChangeNotifier {
     _statusMessage = 'Warming up the camera…';
     notifyListeners();
 
-    final started = await _camera.startCapture();
+    final started = await _camera.startCapture(tuned: _cameraTuning);
     if (!started) {
       _state = MeasurementState.error;
       _statusMessage = 'Could not access camera. Check permissions.';
@@ -241,6 +257,8 @@ class MeasurementProvider extends ChangeNotifier {
       _redBuffer.add(frame.redAvg);
       _greenBuffer.add(frame.greenAvg);
       _timestampsNs.add(frame.timestampNs);
+      _clipSum += frame.clipRatio;
+      _clipCount++;
 
       _statusMessage =
           'Recording… ${(captureDuration - _elapsedSeconds).toStringAsFixed(0)}s remaining';
@@ -310,6 +328,7 @@ class MeasurementProvider extends ChangeNotifier {
         weightKg: profile?.weightKg,
         heightCm: profile?.heightCm,
         age: profile?.age,
+        clipRatio: _clipCount > 0 ? _clipSum / _clipCount : 0,
       );
 
       _result = result;
@@ -354,6 +373,8 @@ class MeasurementProvider extends ChangeNotifier {
     _elapsedSeconds = 0;
     _fingerStreak = 0;
     _droppedFrames = 0;
+    _clipSum = 0;
+    _clipCount = 0;
     _finishing = false;
     notifyListeners();
   }

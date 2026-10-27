@@ -64,6 +64,17 @@ class Complex {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// One spectral peak (diagnostics only)
+// ─────────────────────────────────────────────────────────────────────────────
+class SpectralPeak {
+  final double hz;
+  final double magnitude;
+  const SpectralPeak(this.hz, this.magnitude);
+
+  double get bpm => hz * 60.0;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // FFT Result Container
 // ─────────────────────────────────────────────────────────────────────────────
 class FftResult {
@@ -94,6 +105,10 @@ class FftResult {
   final double redPulseRatio;
   final double greenPulseRatio;
 
+  /// The three strongest spectral peaks in each channel (diagnostics only).
+  final List<SpectralPeak> redPeaks;
+  final List<SpectralPeak> greenPeaks;
+
   const FftResult({
     required this.bpmRed,
     required this.bpmGreen,
@@ -105,6 +120,8 @@ class FftResult {
     required this.confidence,
     this.redPulseRatio = 0,
     this.greenPulseRatio = 0,
+    this.redPeaks = const <SpectralPeak>[],
+    this.greenPeaks = const <SpectralPeak>[],
   });
 
   /// True when the green channel carried no usable pulse energy.
@@ -182,6 +199,23 @@ class MeasurementResult {
   final double effectiveFps;
   final double durationSeconds;
 
+  // ─── Diagnostics (display only, never feed the algorithms) ────────────
+  /// Mean camera level of each channel over the recording (0–255)
+  final double meanRed;
+  final double meanGreen;
+
+  /// Fraction of clipped pixels, averaged over the recording (0–1)
+  final double clipRatio;
+
+  /// Pearson correlation between the red and green sample series.
+  /// ≈1.0 means the two "channels" are the same physical signal seen through
+  /// two colour projections (in YUV both R and G are ~90 % luma).
+  final double channelCorrelation;
+
+  /// Decimated recorded waveforms, for the results screen graph
+  final List<double> redWave;
+  final List<double> greenWave;
+
   const MeasurementResult({
     required this.fftResult,
     required this.slidingResult,
@@ -190,6 +224,12 @@ class MeasurementResult {
     required this.totalFrames,
     required this.effectiveFps,
     required this.durationSeconds,
+    this.meanRed = 0,
+    this.meanGreen = 0,
+    this.clipRatio = 0,
+    this.channelCorrelation = 0,
+    this.redWave = const <double>[],
+    this.greenWave = const <double>[],
   });
 }
 
@@ -273,6 +313,8 @@ class DspEngine {
       confidence: confidence,
       redPulseRatio: redResult.peakRatio,
       greenPulseRatio: greenResult.peakRatio,
+      redPeaks: redResult.peaks,
+      greenPeaks: greenResult.peaks,
     );
   }
 
@@ -361,6 +403,7 @@ class DspEngine {
     double? weightKg,
     double? heightCm,
     int? age,
+    double clipRatio = 0,
   }) {
     // ── Step 0: restore the paper's equal-spacing assumption ────────────
     List<double> red = redSignal;
@@ -382,6 +425,11 @@ class DspEngine {
     }
 
     final double fps = duration > 0 ? red.length / duration : 0.0;
+
+    // Diagnostics (display only)
+    final double meanRed = _mean(redSignal);
+    final double meanGreen = _mean(greenSignal);
+    final double corr = _pearson(red, green);
 
     // Algorithm 1 — baseline comparison
     final sliding = algorithm1SlidingAverage(red, duration);
@@ -408,7 +456,44 @@ class DspEngine {
       totalFrames: red.length,
       effectiveFps: fps,
       durationSeconds: duration,
+      meanRed: meanRed,
+      meanGreen: meanGreen,
+      clipRatio: clipRatio,
+      channelCorrelation: corr,
+      redWave: _decimate(red, 320),
+      greenWave: _decimate(green, 320),
     );
+  }
+
+  // ─── Small numeric helpers (diagnostics) ──────────────────────────────
+  static double _mean(List<double> v) =>
+      v.isEmpty ? 0 : v.reduce((a, b) => a + b) / v.length;
+
+  static double _pearson(List<double> a, List<double> b) {
+    final int n = math.min(a.length, b.length);
+    if (n < 4) return 0;
+    final double ma = a.take(n).reduce((x, y) => x + y) / n;
+    final double mb = b.take(n).reduce((x, y) => x + y) / n;
+    double sab = 0, saa = 0, sbb = 0;
+    for (int i = 0; i < n; i++) {
+      final double da = a[i] - ma;
+      final double db = b[i] - mb;
+      sab += da * db;
+      saa += da * da;
+      sbb += db * db;
+    }
+    final double den = math.sqrt(saa * sbb);
+    return den > 0 ? (sab / den).clamp(-1.0, 1.0) : 0;
+  }
+
+  static List<double> _decimate(List<double> v, int maxPoints) {
+    if (v.length <= maxPoints) return List<double>.from(v);
+    final int step = (v.length / maxPoints).ceil();
+    final List<double> out = <double>[];
+    for (int i = 0; i < v.length; i += step) {
+      out.add(v[i]);
+    }
+    return out;
   }
 
   // ─── Uniform resampling helper ────────────────────────────────────────
@@ -466,6 +551,7 @@ class DspEngine {
     double peakFreq,
     List<double> spectrum,
     double peakRatio,
+    List<SpectralPeak> peaks,
   }) _channelFft(
     List<double> signal,
     double samplingFreq,
@@ -476,6 +562,7 @@ class DspEngine {
         peakFreq: 0.0,
         spectrum: <double>[],
         peakRatio: 0.0,
+        peaks: const <SpectralPeak>[],
       );
     }
 
@@ -514,7 +601,13 @@ class DspEngine {
     if (minBin < 1) minBin = 1;
     if (maxBin > halfN - 2) maxBin = halfN - 2;
     if (maxBin <= minBin) {
-      return (bpm: 0.0, peakFreq: 0.0, spectrum: <double>[], peakRatio: 0.0);
+      return (
+        bpm: 0.0,
+        peakFreq: 0.0,
+        spectrum: <double>[],
+        peakRatio: 0.0,
+        peaks: const <SpectralPeak>[],
+      );
     }
 
     int peakBin = minBin;
@@ -540,6 +633,19 @@ class DspEngine {
     final double median = band[band.length ~/ 2];
     final double peakRatio = median > 0 ? maxAmp / median : 0.0;
 
+    // Display-only: the three strongest local maxima inside the band, so a
+    // wrong reading can be traced to a specific interfering frequency.
+    final List<SpectralPeak> peaks = <SpectralPeak>[];
+    for (int k = minBin + 1; k < maxBin; k++) {
+      final double m = magnitudes[k];
+      if (m > magnitudes[k - 1] && m >= magnitudes[k + 1]) {
+        peaks.add(SpectralPeak(k * samplingFreq / n, m));
+      }
+    }
+    peaks.sort((a, b) => b.magnitude.compareTo(a.magnitude));
+    final List<SpectralPeak> topPeaks =
+        peaks.length > 3 ? peaks.sublist(0, 3) : peaks;
+
     return (
       bpm: bpm,
       peakFreq: peakFreq,
@@ -547,6 +653,7 @@ class DspEngine {
       // not crushed by the near-DC bins when the graph auto-scales.
       spectrum: magnitudes.sublist(minBin, maxBin + 1),
       peakRatio: peakRatio,
+      peaks: topPeaks,
     );
   }
 

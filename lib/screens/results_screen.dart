@@ -31,6 +31,7 @@ class _ResultsScreenState extends State<ResultsScreen>
   final TextEditingController _notesController = TextEditingController();
   bool _showAlgorithmComparison = false;
   bool _showIntermediateValues = false;
+  bool _showDiagnostics = false;
 
   @override
   void initState() {
@@ -93,6 +94,14 @@ class _ResultsScreenState extends State<ResultsScreen>
 
                 // ─── FFT Spectrum Visualization ──────────────
                 _buildSpectrumSection(fft),
+                const SizedBox(height: 16),
+
+                // ─── Recorded signal (what the camera actually saw) ──
+                _buildRecordedWave(r),
+                const SizedBox(height: 16),
+
+                // ─── Signal diagnostics ──────────────────────
+                _buildDiagnostics(r),
                 const SizedBox(height: 16),
 
                 // ─── Algorithm Comparison Toggle ─────────────
@@ -278,6 +287,163 @@ class _ResultsScreenState extends State<ResultsScreen>
               ],
             ),
           ),
+        ],
+      ),
+    );
+  }
+
+  /// The 30 s signal that the FFT actually worked on (after resampling).
+  Widget _buildRecordedWave(MeasurementResult r) {
+    if (r.redWave.isEmpty) return const SizedBox.shrink();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const _SectionLabel(text: 'RECORDED SIGNAL (30 s WINDOW)'),
+        const SizedBox(height: 8),
+        PpgWaveformWidget(
+          data: r.redWave,
+          color: AppColors.heartRed,
+          label: 'RED CHANNEL',
+          height: 70,
+          maxPoints: 320,
+        ),
+        const SizedBox(height: 8),
+        PpgWaveformWidget(
+          data: r.greenWave,
+          color: AppColors.pulseGreen,
+          label: 'GREEN CHANNEL',
+          height: 70,
+          maxPoints: 320,
+        ),
+      ],
+    );
+  }
+
+  /// Raw numbers that explain *why* a reading came out the way it did.
+  Widget _buildDiagnostics(MeasurementResult r) {
+    final FftResult fft = r.fftResult;
+
+    String peaksOf(List<SpectralPeak> peaks) {
+      if (peaks.isEmpty) return 'none';
+      final double top = peaks.first.magnitude;
+      return peaks
+          .map((p) =>
+              '${p.hz.toStringAsFixed(2)} Hz / ${p.bpm.toStringAsFixed(0)} BPM'
+              ' (×${(top > 0 ? p.magnitude / top : 0).toStringAsFixed(2)})')
+          .join('\n');
+    }
+
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.surfaceBorder),
+      ),
+      child: Column(
+        children: [
+          InkWell(
+            onTap: () => setState(() => _showDiagnostics = !_showDiagnostics),
+            borderRadius: BorderRadius.circular(16),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                children: [
+                  const Icon(Icons.troubleshoot,
+                      color: AppColors.accentBlue, size: 20),
+                  const SizedBox(width: 10),
+                  const Expanded(
+                    child: Text(
+                      'Signal Diagnostics',
+                      style: TextStyle(
+                        color: AppColors.textPrimary,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  Icon(
+                    _showDiagnostics ? Icons.expand_less : Icons.expand_more,
+                    color: AppColors.textTertiary,
+                  ),
+                ],
+              ),
+            ),
+          ),
+          if (_showDiagnostics) ...[
+            const Divider(color: AppColors.surfaceBorder, height: 1),
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _diagRow('Sampling rate (Fs)',
+                      '${r.effectiveFps.toStringAsFixed(2)} Hz'),
+                  _diagRow('Window', '${r.durationSeconds.toStringAsFixed(2)} s'),
+                  _diagRow('Samples into FFT', '${r.totalFrames}'),
+                  _diagRow('Mean level',
+                      'R ${r.meanRed.toStringAsFixed(0)}  •  G ${r.meanGreen.toStringAsFixed(0)}'),
+                  _diagRow('Clipped pixels',
+                      '${(r.clipRatio * 100).toStringAsFixed(1)} %'),
+                  _diagRow('Red↔Green correlation',
+                      r.channelCorrelation.toStringAsFixed(3)),
+                  const SizedBox(height: 10),
+                  const Text('RED: strongest peaks in band',
+                      style: TextStyle(
+                          color: AppColors.heartRed,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700)),
+                  const SizedBox(height: 4),
+                  Text(peaksOf(fft.redPeaks),
+                      style: const TextStyle(
+                          color: AppColors.textSecondary,
+                          fontSize: 11,
+                          height: 1.5)),
+                  const SizedBox(height: 10),
+                  const Text('GREEN: strongest peaks in band',
+                      style: TextStyle(
+                          color: AppColors.pulseGreen,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700)),
+                  const SizedBox(height: 4),
+                  Text(peaksOf(fft.greenPeaks),
+                      style: const TextStyle(
+                          color: AppColors.textSecondary,
+                          fontSize: 11,
+                          height: 1.5)),
+                  const SizedBox(height: 10),
+                  const Text(
+                    'If 54 BPM appears here but your watch says 78, that '
+                    '0.9 Hz line is an artefact (torch/exposure), not a pulse. '
+                    'If the winning peak is already the highest one, it is the '
+                    'capture, not the maths.',
+                    style: TextStyle(
+                        color: AppColors.textTertiary,
+                        fontSize: 10.5,
+                        height: 1.45),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _diagRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label,
+              style: const TextStyle(
+                  color: AppColors.textTertiary, fontSize: 12)),
+          Text(value,
+              style: const TextStyle(
+                  color: AppColors.textPrimary,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600)),
         ],
       ),
     );

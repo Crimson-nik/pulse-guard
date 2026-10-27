@@ -145,6 +145,7 @@ class PpgWaveformWidget extends StatelessWidget {
   final Color color;
   final double height;
   final String? label;
+  final int maxPoints;
 
   const PpgWaveformWidget({
     super.key,
@@ -152,6 +153,7 @@ class PpgWaveformWidget extends StatelessWidget {
     this.color = AppColors.pulseGreen,
     this.height = 120,
     this.label,
+    this.maxPoints = 200,
   });
 
   @override
@@ -160,7 +162,6 @@ class PpgWaveformWidget extends StatelessWidget {
     // buffer (same List instance every frame), and the painter compares
     // old/new data to decide whether to repaint — comparing a list with
     // itself would never repaint, so we pass a copy.
-    const int maxPoints = 200;
     final int start = data.length > maxPoints ? data.length - maxPoints : 0;
     final List<double> snapshot = data.sublist(start);
 

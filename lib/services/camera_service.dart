@@ -111,15 +111,22 @@ class CameraService {
 
   /// Start camera preview with torch on, begin streaming frame data.
   /// Idempotent: a second call while already capturing is a no-op.
-  Future<bool> startCapture() {
+  ///
+  /// [tuned] applies the camera capture-request tuning (AE/AWB lock, 30 fps
+  /// lock, OIS/EIS off). It is applied when the camera is bound, so changing it
+  /// only affects the next recording.
+  Future<bool> startCapture({bool tuned = true}) {
     if (_isCapturing) return Future<bool>.value(true);
-    return _starting ??= _startCaptureInternal();
+    return _starting ??= _startCaptureInternal(tuned);
   }
 
-  Future<bool> _startCaptureInternal() async {
+  Future<bool> _startCaptureInternal(bool tuned) async {
     try {
-      final bool result =
-          await _methodChannel.invokeMethod<bool>('startCapture') ?? false;
+      final bool result = await _methodChannel.invokeMethod<bool>(
+            'startCapture',
+            <String, dynamic>{'tuned': tuned},
+          ) ??
+          false;
       _isCapturing = result;
       return result;
     } on PlatformException catch (e) {
