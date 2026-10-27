@@ -176,6 +176,19 @@ class UserProfile extends DataClass implements Insertable<UserProfile> {
     return map;
   }
 
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<int>(id),
+      'name': serializer.toJson<String>(name),
+      'age': serializer.toJson<int>(age),
+      'heightCm': serializer.toJson<double>(heightCm),
+      'weightKg': serializer.toJson<double>(weightKg),
+      'updatedAt': serializer.toJson<DateTime>(updatedAt),
+    };
+  }
+
   UserProfilesCompanion toCompanion(bool nullToAbsent) {
     return UserProfilesCompanion(
       id: Value(id),
@@ -615,6 +628,29 @@ class Measurement extends DataClass implements Insertable<Measurement> {
       map['notes'] = Variable<String>(notes);
     }
     return map;
+  }
+
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<int>(id),
+      'timestamp': serializer.toJson<DateTime>(timestamp),
+      'heartRateFft': serializer.toJson<double>(heartRateFft),
+      'bpmRed': serializer.toJson<double>(bpmRed),
+      'bpmGreen': serializer.toJson<double>(bpmGreen),
+      'confidence': serializer.toJson<double>(confidence),
+      'heartRateSliding': serializer.toJson<double>(heartRateSliding),
+      'systolic': serializer.toJson<double?>(systolic),
+      'diastolic': serializer.toJson<double?>(diastolic),
+      'pulsePressure': serializer.toJson<double?>(pulsePressure),
+      'strokeVolume': serializer.toJson<double?>(strokeVolume),
+      'bpStage': serializer.toJson<String?>(bpStage),
+      'totalFrames': serializer.toJson<int>(totalFrames),
+      'effectiveFps': serializer.toJson<double>(effectiveFps),
+      'durationSeconds': serializer.toJson<double>(durationSeconds),
+      'notes': serializer.toJson<String?>(notes),
+    };
   }
 
   MeasurementsCompanion toCompanion(bool nullToAbsent) {

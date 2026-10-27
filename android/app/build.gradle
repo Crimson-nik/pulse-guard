@@ -7,6 +7,7 @@ plugins {
 android {
     namespace "com.pulseguard.app"
     compileSdk 35  // Android 15
+    ndkVersion = "28.2.13676358"
 
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
