@@ -34,10 +34,7 @@ migrate_working_dir/
 **/android/**/gradle-wrapper.jar
 **/android/.gradle
 **/android/captures/
-**/android/gradlew
-**/android/gradlew.bat
-**/android/local.properties
-**/android/**/GeneratedPluginRegistrant.java
-
 # Exceptions to above rules.
 !**/android/**/gradle/wrapper/gradle-wrapper.jar
+!**/android/gradlew
+!**/android/gradlew.bat
