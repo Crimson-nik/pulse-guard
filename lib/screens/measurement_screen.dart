@@ -28,6 +28,9 @@ class _MeasurementScreenState extends State<MeasurementScreen>
   late AnimationController _ringPulseController;
   late AnimationController _breatheController;
 
+  MeasurementProvider? _provider;
+  bool _navigated = false;
+
   @override
   void initState() {
     super.initState();
@@ -41,14 +44,42 @@ class _MeasurementScreenState extends State<MeasurementScreen>
       duration: const Duration(milliseconds: 2000),
     )..repeat(reverse: true);
 
-    // Auto-start measurement
+    // Auto-start measurement. Navigation happens from a listener (one time),
+    // NEVER from build() — doing it in build pushed the results route again on
+    // every rebuild, which is what produced the "slideshow" on a 2nd run.
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<MeasurementProvider>().startMeasurement();
+      if (!mounted) return;
+      final p = context.read<MeasurementProvider>();
+      _provider = p;
+      p.addListener(_onProviderChanged);
+      p.startMeasurement();
+    });
+  }
+
+  void _onProviderChanged() {
+    final p = _provider;
+    if (p == null || _navigated || !mounted) return;
+    if (p.state != MeasurementState.complete || p.result == null) return;
+
+    _navigated = true;
+    final result = p.result!;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => ResultsScreen(result: result)),
+      );
     });
   }
 
   @override
   void dispose() {
+    _provider?.removeListener(_onProviderChanged);
+    // Release the 30 s buffers so the next recording starts from a clean slate.
+    final p = _provider;
+    if (p != null) {
+      Future<void>.microtask(p.reset);
+    }
     _ringPulseController.dispose();
     _breatheController.dispose();
     super.dispose();
@@ -58,19 +89,6 @@ class _MeasurementScreenState extends State<MeasurementScreen>
   Widget build(BuildContext context) {
     return Consumer<MeasurementProvider>(
       builder: (context, provider, _) {
-        // Navigate to results when complete
-        if (provider.state == MeasurementState.complete &&
-            provider.result != null) {
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            Navigator.pushReplacement(
-              context,
-              MaterialPageRoute(
-                builder: (_) => ResultsScreen(result: provider.result!),
-              ),
-            );
-          });
-        }
-
         return PopScope(
           canPop: provider.state == MeasurementState.idle ||
               provider.state == MeasurementState.error,
@@ -154,6 +172,25 @@ class _MeasurementScreenState extends State<MeasurementScreen>
                             '${(provider.redBuffer.length / math.max(provider.elapsedSeconds, 0.1)).toStringAsFixed(1)} FPS',
                           ),
                         ],
+                      ),
+                      const SizedBox(height: 10),
+
+                      // ─── Live signal-quality hints ───────────────
+                      _buildQualityHints(provider),
+                    ],
+
+                    if (provider.state == MeasurementState.preparing &&
+                        provider.prepSeconds > 6) ...[
+                      const SizedBox(height: 12),
+                      TextButton(
+                        onPressed: provider.forceStart,
+                        child: const Text(
+                          'Finger not detected? Start anyway',
+                          style: TextStyle(
+                            color: AppColors.accentBlue,
+                            fontSize: 12,
+                          ),
+                        ),
                       ),
                     ],
 
@@ -333,12 +370,63 @@ class _MeasurementScreenState extends State<MeasurementScreen>
     );
   }
 
+  /// Live hints that tell the user what the camera is actually seeing.
+  /// They never change the numbers — they only explain a bad capture.
+  Widget _buildQualityHints(MeasurementProvider provider) {
+    final double greenSpan = provider.liveGreenSpan;
+    final double clip = provider.clipRatio;
+
+    final bool flat = provider.greenBuffer.length > 90 && greenSpan < 1.0;
+    final bool clipping = clip > 0.02;
+
+    final List<Widget> chips = [
+      _buildInfoChip(
+        Icons.show_chart,
+        'GREEN AC ${greenSpan.toStringAsFixed(1)}',
+      ),
+      const SizedBox(width: 12),
+      _buildInfoChip(
+        Icons.wb_sunny_outlined,
+        'CLIP ${(clip * 100).toStringAsFixed(0)}%',
+      ),
+    ];
+
+    String? hint;
+    if (clipping) {
+      hint = 'Too much light — lift the finger 1 mm so the image is not '
+          'blown out, then hold it still.';
+    } else if (flat) {
+      hint = 'Green trace is flat — you are pressing too hard. Ease the '
+          'pressure until the green line starts to move.';
+    }
+
+    return Column(
+      children: [
+        Row(mainAxisAlignment: MainAxisAlignment.center, children: chips),
+        if (hint != null) ...[
+          const SizedBox(height: 8),
+          Text(
+            hint,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              color: AppColors.accentOrange,
+              fontSize: 11,
+              height: 1.4,
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
   String _getSubMessage(MeasurementProvider provider) {
     switch (provider.state) {
       case MeasurementState.preparing:
-        return 'Cover the rear camera lens and LED flash\nwith your index finger';
+        return 'Rest your index fingertip LIGHTLY over the rear camera lens\n'
+            'and the LED flash. Cover the lens fully, do not press hard —\n'
+            'pressing squeezes the capillaries shut and flattens the pulse.';
       case MeasurementState.capturing:
-        return 'Recording PPG signal • Keep still';
+        return 'Recording PPG signal • Keep still • Light contact only';
       case MeasurementState.processing:
         return 'Computing dual-channel FFT & blood pressure';
       case MeasurementState.error:

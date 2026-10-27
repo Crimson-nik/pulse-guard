@@ -79,6 +79,12 @@ class _ResultsScreenState extends State<ResultsScreen>
                 _buildHeroCard(fft),
                 const SizedBox(height: 16),
 
+                // ─── Signal validity warning ─────────────────
+                if (fft.greenChannelFlat || fft.redChannelFlat) ...[
+                  _buildChannelWarning(fft),
+                  const SizedBox(height: 16),
+                ],
+
                 // ─── Blood Pressure ──────────────────────────
                 if (bp != null) ...[
                   _buildBpSection(bp),
@@ -184,7 +190,7 @@ class _ResultsScreenState extends State<ResultsScreen>
                 ),
                 const SizedBox(width: 6),
                 Text(
-                  'Dual-FFT Confidence: ${(fft.confidence * 100).toStringAsFixed(0)}%',
+                  'Channel agreement: ${(fft.confidence * 100).toStringAsFixed(0)}%',
                   style: const TextStyle(
                     color: Colors.white,
                     fontSize: 13,
@@ -200,6 +206,76 @@ class _ResultsScreenState extends State<ResultsScreen>
             style: TextStyle(
               color: Colors.white.withOpacity(0.75),
               fontSize: 12,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Warns when one of the two channels carried no usable pulse.
+  /// The paper averages the two channels, so a dead channel silently drags the
+  /// result towards its noise peak — e.g. red 77 BPM + green 44 BPM = 61 BPM.
+  Widget _buildChannelWarning(FftResult fft) {
+    final bool greenFlat = fft.greenChannelFlat;
+    final String which = greenFlat ? 'GREEN' : 'RED';
+    final String detail = greenFlat
+        ? 'The green channel produced a flat spectrum (peak/median = '
+            '${fft.greenPulseRatio.toStringAsFixed(1)}), so its '
+            '${fft.bpmGreen.toStringAsFixed(0)} BPM is a noise peak, not a '
+            'pulse. Algorithm 2 averages both channels, so the final number is '
+            'dragged down by it.'
+        : 'The red channel produced a flat spectrum (peak/median = '
+            '${fft.redPulseRatio.toStringAsFixed(1)}), so its '
+            '${fft.bpmRed.toStringAsFixed(0)} BPM is unreliable.';
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.accentOrange.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.accentOrange.withOpacity(0.35)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.warning_amber_rounded,
+              color: AppColors.accentOrange, size: 20),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '$which CHANNEL WAS FLAT — READING UNRELIABLE',
+                  style: const TextStyle(
+                    color: AppColors.accentOrange,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.6,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  detail,
+                  style: const TextStyle(
+                    color: AppColors.textSecondary,
+                    fontSize: 12,
+                    height: 1.45,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                const Text(
+                  'Fix: rest the fingertip lightly — enough to seal the lens, '
+                  'never a hard press. Then record again.',
+                  style: TextStyle(
+                    color: AppColors.textTertiary,
+                    fontSize: 11,
+                    height: 1.4,
+                  ),
+                ),
+              ],
             ),
           ),
         ],
@@ -293,21 +369,23 @@ class _ResultsScreenState extends State<ResultsScreen>
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const _SectionLabel(text: 'FFT POWER SPECTRUM'),
+        const _SectionLabel(text: 'FFT POWER SPECTRUM (40–210 BPM BAND)'),
         const SizedBox(height: 8),
         if (fft.spectrumRed.isNotEmpty)
           PpgWaveformWidget(
-            data: fft.spectrumRed.take(100).toList(),
+            data: fft.spectrumRed,
             color: AppColors.heartRed,
-            label: 'RED SPECTRUM',
+            label:
+                'RED SPECTRUM — peak ${fft.peakFreqRed.toStringAsFixed(2)} Hz',
             height: 70,
           ),
         const SizedBox(height: 8),
         if (fft.spectrumGreen.isNotEmpty)
           PpgWaveformWidget(
-            data: fft.spectrumGreen.take(100).toList(),
+            data: fft.spectrumGreen,
             color: AppColors.pulseGreen,
-            label: 'GREEN SPECTRUM',
+            label:
+                'GREEN SPECTRUM — peak ${fft.peakFreqGreen.toStringAsFixed(2)} Hz',
             height: 70,
           ),
       ],

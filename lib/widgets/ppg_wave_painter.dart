@@ -42,7 +42,10 @@ class PpgWavePainter extends CustomPainter {
     const double topPad = 8;
     const double bottomPad = 8;
     final double plotHeight = size.height - topPad - bottomPad;
-    final double dx = size.width / (maxPoints - 1);
+    // Scale to the samples we actually have, so a short buffer still fills the
+    // width instead of being squeezed into the left edge.
+    final double dx =
+        visible.length > 1 ? size.width / (visible.length - 1) : size.width;
 
     // Build path
     final Path path = Path();
@@ -153,6 +156,14 @@ class PpgWaveformWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Snapshot the last `maxPoints` samples. The provider hands us its live
+    // buffer (same List instance every frame), and the painter compares
+    // old/new data to decide whether to repaint — comparing a list with
+    // itself would never repaint, so we pass a copy.
+    const int maxPoints = 200;
+    final int start = data.length > maxPoints ? data.length - maxPoints : 0;
+    final List<double> snapshot = data.sublist(start);
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -180,8 +191,9 @@ class PpgWaveformWidget extends StatelessWidget {
           clipBehavior: Clip.antiAlias,
           child: CustomPaint(
             painter: PpgWavePainter(
-              data: data,
+              data: snapshot,
               lineColor: color,
+              maxPoints: maxPoints,
             ),
             size: Size.infinite,
           ),
