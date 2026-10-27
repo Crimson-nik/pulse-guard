@@ -25,10 +25,10 @@ jobs:
           channel: 'stable'
           cache: true
 
-      - name: Fix Gradle Wrapper line endings
+      - name: Recreate Android project wrapper
         run: |
-          sed -i -e 's/\r$//' android/gradlew
-          chmod +x android/gradlew
+          flutter create --platforms android --project-name pulse_guard .
+          git checkout -- lib/ pubspec.yaml android/app/build.gradle android/app/src/main/AndroidManifest.xml android/app/src/main/kotlin/com/pulseguard/app/MainActivity.kt android/app/src/main/res/ android/build.gradle android/gradle.properties android/settings.gradle
 
       - name: Get Flutter dependencies
         run: flutter pub get
