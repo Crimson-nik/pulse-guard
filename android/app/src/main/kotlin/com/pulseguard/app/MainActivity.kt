@@ -316,8 +316,8 @@ class PpgFrameAnalyzer(
             val y0 = (height * 0.20).toInt()
             val y1 = (height * 0.80).toInt()
 
-            var totalRed = 0L
-            var totalGreen = 0L
+            var totalRed = 0.0
+            var totalGreen = 0.0
             var totalLuma = 0L
             var clipped = 0
             var count = 0
@@ -345,14 +345,23 @@ class PpgFrameAnalyzer(
                     val u = (uPlane.get(uvIndex).toInt() and 0xFF) - 128
                     val v = (vPlane.get(uvIndex).toInt() and 0xFF) - 128
 
-                    // YUV → RGB (ITU-R BT.601 limited range)
-                    val r = (1.164 * y + 1.596 * v).toInt().coerceIn(0, 255)
-                    val g = (1.164 * y - 0.813 * v - 0.391 * u).toInt().coerceIn(0, 255)
+                    // YUV → RGB (ITU-R BT.601 limited range), NOT clamped.
+                    //
+                    // Under the torch a fingertip is strongly red-dominant, so
+                    // Cr sits near its maximum and the derived green lands
+                    // around level 2 (see the diagnostics: mean G ≈ 2). Clamping
+                    // each pixel to [0,255] then half-wave rectifies the green
+                    // waveform — the pulse is cut off and only distortion is
+                    // left, which is why green read as a flat line and its FFT
+                    // picked a random peak. Averaging the signed values keeps the
+                    // waveform intact; only the final average is reported.
+                    val r = 1.164 * y + 1.596 * v
+                    val g = 1.164 * y - 0.813 * v - 0.391 * u
 
                     totalRed += r
                     totalGreen += g
                     totalLuma += yRaw
-                    if (r >= 250) clipped++
+                    if (r >= 250.0) clipped++
                     count++
 
                     col += step

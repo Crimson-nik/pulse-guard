@@ -595,12 +595,15 @@ class DspEngine {
     final List<double> magnitudes =
         List<double>.generate(halfN, (k) => spectrum[k].magnitude);
 
-    // Physiological bandpass: 0.667 Hz (40 BPM) … 3.5 Hz (210 BPM)
-    int minBin = (bandLowHz * n / samplingFreq).floor();
+    // Physiological band: 0.667 Hz (40 BPM) … 3.5 Hz (210 BPM).
+    // `ceil` on the low edge so the band really starts AT 40 BPM; `floor`
+    // used to produce a first bin at 0.641 Hz (38.5 BPM), i.e. below the
+    // stated band, and that edge bin was winning on a drifting signal.
+    int minBin = (bandLowHz * n / samplingFreq).ceil();
     int maxBin = (bandHighHz * n / samplingFreq).ceil();
     if (minBin < 1) minBin = 1;
     if (maxBin > halfN - 2) maxBin = halfN - 2;
-    if (maxBin <= minBin) {
+    if (maxBin <= minBin + 1) {
       return (
         bpm: 0.0,
         peakFreq: 0.0,
@@ -610,17 +613,36 @@ class DspEngine {
       );
     }
 
-    int peakBin = minBin;
-    double maxAmp = -1.0;
+    // Rarely used: the band's largest bin (needed only if the band holds no
+    // local maximum at all).
+    int globalMaxBin = minBin;
+    double globalMaxAmp = -1.0;
     final List<double> band = <double>[];
-
     for (int k = minBin; k <= maxBin; k++) {
       band.add(magnitudes[k]);
-      if (magnitudes[k] > maxAmp) {
-        maxAmp = magnitudes[k];
-        peakBin = k;
+      if (magnitudes[k] > globalMaxAmp) {
+        globalMaxAmp = magnitudes[k];
+        globalMaxBin = k;
       }
     }
+
+    // The paper reads "the frequency of maximum amplitude" off Figs. 14–15,
+    // which show a PEAK. A drifting low-frequency component, however, makes
+    // the spectrum largest at the band's lower edge — a slope, not a peak —
+    // and that slope used to win, reporting ~39 BPM. Selecting among interior
+    // local maxima keeps the paper's rule while ignoring the slope.
+    final List<int> peakBins = <int>[];
+    for (int k = minBin + 1; k < maxBin; k++) {
+      final double m = magnitudes[k];
+      if (m > magnitudes[k - 1] && m >= magnitudes[k + 1]) {
+        peakBins.add(k);
+      }
+    }
+    peakBins.sort((a, b) => magnitudes[b].compareTo(magnitudes[a]));
+
+    final int peakBin = peakBins.isNotEmpty ? peakBins.first : globalMaxBin;
+    final double maxAmp =
+        peakBins.isNotEmpty ? magnitudes[peakBins.first] : globalMaxAmp;
 
     // Peak frequency — Eq. (2) of the paper: f = k · Fs / N
     final double peakFreq = peakBin * samplingFreq / n;
@@ -633,18 +655,12 @@ class DspEngine {
     final double median = band[band.length ~/ 2];
     final double peakRatio = median > 0 ? maxAmp / median : 0.0;
 
-    // Display-only: the three strongest local maxima inside the band, so a
-    // wrong reading can be traced to a specific interfering frequency.
-    final List<SpectralPeak> peaks = <SpectralPeak>[];
-    for (int k = minBin + 1; k < maxBin; k++) {
-      final double m = magnitudes[k];
-      if (m > magnitudes[k - 1] && m >= magnitudes[k + 1]) {
-        peaks.add(SpectralPeak(k * samplingFreq / n, m));
-      }
-    }
-    peaks.sort((a, b) => b.magnitude.compareTo(a.magnitude));
-    final List<SpectralPeak> topPeaks =
-        peaks.length > 3 ? peaks.sublist(0, 3) : peaks;
+    // Display-only: the three strongest local maxima, so a wrong reading can be
+    // traced to a specific interfering frequency.
+    final List<SpectralPeak> topPeaks = peakBins
+        .take(3)
+        .map((k) => SpectralPeak(k * samplingFreq / n, magnitudes[k]))
+        .toList();
 
     return (
       bpm: bpm,
